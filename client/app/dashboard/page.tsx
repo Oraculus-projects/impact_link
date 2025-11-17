@@ -28,6 +28,7 @@ export default function DashboardPage() {
     try {
       const response = await api.get('/analytics/dashboard')
       setData(response.data)
+      console.log(response.data.clicksByCountry)
     } catch (error) {
       console.error('Error fetching dashboard:', error)
     } finally {

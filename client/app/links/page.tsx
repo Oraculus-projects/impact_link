@@ -8,8 +8,9 @@ import * as z from 'zod'
 import Layout from '@/components/Layout'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
-import { Plus, Copy, ExternalLink, Trash2, Edit } from 'lucide-react'
+import { Plus, Copy, ExternalLink, Trash2, Edit, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ButtonGroup } from '@/components/ui/button-group'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -83,6 +84,14 @@ export default function LinksPage() {
   const [links, setLinks] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 0,
+    hasNext: false,
+    hasPrev: false
+  })
 
   // Formulário com react-hook-form
   const form = useForm<LinkFormValues>({
@@ -107,10 +116,14 @@ export default function LinksPage() {
     fetchLinks()
   }, [router])
 
-  const fetchLinks = async () => {
+  const fetchLinks = async (page: number = pagination.page) => {
     try {
-      const response = await api.get('/links')
+      setLoading(true)
+      const response = await api.get(`/links?page=${page}&limit=${pagination.limit}`)
       setLinks(response.data.links)
+      if (response.data.pagination) {
+        setPagination(response.data.pagination)
+      }
     } catch (error) {
       console.error('Error fetching links:', error)
     } finally {
@@ -143,7 +156,8 @@ export default function LinksPage() {
       toast.success('Link criado com sucesso!')
       setShowModal(false)
       form.reset()
-      fetchLinks()
+      // Voltar para primeira página ao criar novo link
+      fetchLinks(1)
     } catch (error: any) {
       // Log detalhado do erro
       console.error('Erro completo:', error)
@@ -190,7 +204,12 @@ export default function LinksPage() {
     try {
       await api.delete(`/links/${id}`)
       toast.success('Link excluído com sucesso!')
-      fetchLinks()
+      // Se a página atual ficar vazia após deletar, voltar para página anterior
+      if (links.length === 1 && pagination.page > 1) {
+        fetchLinks(pagination.page - 1)
+      } else {
+        fetchLinks(pagination.page)
+      }
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Erro ao excluir link')
     }
@@ -199,6 +218,37 @@ export default function LinksPage() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
     toast.success('Link copiado!')
+  }
+
+  // Função para obter classes de cor baseadas no tipo de link (mesma do Dashboard)
+  const getLinkTypeStyles = (linkType: string) => {
+    const styles: Record<string, { bg: string; text: string }> = {
+      BIO: {
+        bg: 'bg-blue-500/20',
+        text: 'text-blue-400'
+      },
+      STORY: {
+        bg: 'bg-purple-500/20',
+        text: 'text-purple-400'
+      },
+      DIRECT: {
+        bg: 'bg-green-500/20',
+        text: 'text-green-400'
+      },
+      CAMPANHA: {
+        bg: 'bg-orange-500/20',
+        text: 'text-orange-400'
+      },
+      PRODUTO: {
+        bg: 'bg-pink-500/20',
+        text: 'text-pink-400'
+      },
+      OTHER: {
+        bg: 'bg-gray-500/20',
+        text: 'text-gray-400'
+      }
+    }
+    return styles[linkType] || styles.OTHER
   }
 
   // const linkDomain = process.env.NEXT_PUBLIC_LINK_DOMAIN || 'localhost:3001'
@@ -219,7 +269,7 @@ export default function LinksPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold text-foreground">Links</h1>
-          <Button variant={"outline"} className='text-white' onClick={() => setShowModal(true)}>
+          <Button variant={"secondary"} className='text-white' onClick={() => setShowModal(true)}>
             <Plus size={20} className="mr-2" />
             Criar Link
           </Button>
@@ -269,9 +319,14 @@ export default function LinksPage() {
                           </td>
                           <td className="px-6 py-4 text-foreground">{link.title || 'Sem título'}</td>
                           <td className="px-6 py-4">
-                            <span className="px-2 py-1 bg-primary/20 text-primary rounded text-xs">
-                              {link.linkType}
-                            </span>
+                            {(() => {
+                              const styles = getLinkTypeStyles(link.linkType)
+                              return (
+                                <span className={`px-2 py-1 ${styles.bg} ${styles.text} rounded text-xs font-medium`}>
+                                  {link.linkType}
+                                </span>
+                              )
+                            })()}
                           </td>
                           <td className="px-6 py-4 text-foreground">{link._count?.clicks || 0}</td>
                           <td className="px-6 py-4 text-right">
@@ -308,6 +363,66 @@ export default function LinksPage() {
                   </tbody>
                 </table>
               </div>
+              
+              {/* Paginação */}
+              {pagination.total > 0 && (
+                <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                  <div className="text-sm text-muted-foreground">
+                    Mostrando {((pagination.page - 1) * pagination.limit) + 1} a {Math.min(pagination.page * pagination.limit, pagination.total)} de {pagination.total} links
+                  </div>
+                  {pagination.totalPages > 1 ? (
+                    <ButtonGroup>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fetchLinks(pagination.page - 1)}
+                        disabled={!pagination.hasPrev || loading}
+                      >
+                        <ChevronLeft size={16} className="mr-1" />
+                        Anterior
+                      </Button>
+                      {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                        let pageNum: number
+                        if (pagination.totalPages <= 5) {
+                          pageNum = i + 1
+                        } else if (pagination.page <= 3) {
+                          pageNum = i + 1
+                        } else if (pagination.page >= pagination.totalPages - 2) {
+                          pageNum = pagination.totalPages - 4 + i
+                        } else {
+                          pageNum = pagination.page - 2 + i
+                        }
+                        
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={pagination.page === pageNum ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => fetchLinks(pageNum)}
+                            disabled={loading}
+                            className="min-w-[40px]"
+                          >
+                            {pageNum}
+                          </Button>
+                        )
+                      })}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fetchLinks(pagination.page + 1)}
+                        disabled={!pagination.hasNext || loading}
+                      >
+                        Próxima
+                        <ChevronRight size={16} className="ml-1" />
+                      </Button>
+                    </ButtonGroup>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      Página 1 de 1
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

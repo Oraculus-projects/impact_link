@@ -129,7 +129,7 @@ model Click {
   linkId        String
   userId        String
   
-  link          Link      @relation(fields: [linkId], references: [id])
+  link          Link      @relation(fields: [linkId], references: [id], onDelete: Cascade)
   user          User      @relation(fields: [userId], references: [id])
   
   // Tracking data

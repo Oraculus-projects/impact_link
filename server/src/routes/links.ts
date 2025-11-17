@@ -8,9 +8,9 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // Get all links for user
-router.get('/', authenticate, async (req: AuthRequest, res) => {
+router.get('/', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
-    const { clientId, campaignId, linkType, tag } = req.query;
+    const { clientId, campaignId, linkType, tag, page, limit } = req.query;
 
     const where: any = {
       userId: req.userId
@@ -21,6 +21,15 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
     if (linkType) where.linkType = linkType;
     if (tag) where.tags = { has: tag as string };
 
+    // Paginação
+    const pageNumber = parseInt(page as string) || 1;
+    const pageSize = parseInt(limit as string) || 10;
+    const skip = (pageNumber - 1) * pageSize;
+
+    // Contar total de links
+    const total = await prisma.link.count({ where });
+
+    // Buscar links com paginação
     const links = await prisma.link.findMany({
       where,
       include: {
@@ -34,10 +43,24 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
           select: { clicks: true }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: pageSize
     });
 
-    res.json({ links });
+    const totalPages = Math.ceil(total / pageSize);
+
+    res.json({ 
+      links,
+      pagination: {
+        page: pageNumber,
+        limit: pageSize,
+        total,
+        totalPages,
+        hasNext: pageNumber < totalPages,
+        hasPrev: pageNumber > 1
+      }
+    });
   } catch (error) {
     console.error('Get links error:', error);
     res.status(500).json({ error: 'Failed to fetch links' });
@@ -268,7 +291,7 @@ router.put(
 );
 
 // Delete link
-router.delete('/:id', authenticate, async (req: AuthRequest, res) => {
+router.delete('/:id', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const link = await prisma.link.findFirst({
       where: {
@@ -281,13 +304,27 @@ router.delete('/:id', authenticate, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Link not found' });
     }
 
+    // Deletar todos os cliques associados ao link primeiro
+    await prisma.click.deleteMany({
+      where: { linkId: req.params.id }
+    });
+
+    // Agora deletar o link
     await prisma.link.delete({
       where: { id: req.params.id }
     });
 
     res.json({ message: 'Link deleted successfully' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Delete link error:', error);
+    
+    // Se for erro de constraint, dar mensagem mais específica
+    if (error.code === 'P2003') {
+      return res.status(400).json({ 
+        error: 'Não foi possível excluir o link. Tente novamente.' 
+      });
+    }
+    
     res.status(500).json({ error: 'Failed to delete link' });
   }
 });
