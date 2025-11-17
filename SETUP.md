@@ -7,8 +7,10 @@ Este guia irá ajudá-lo a configurar e executar o ImpactLink em seu ambiente lo
 Antes de começar, certifique-se de ter instalado:
 
 - **Node.js** 18 ou superior
-- **PostgreSQL** 14 ou superior
 - **npm** ou **yarn**
+- **Banco de Dados**: PostgreSQL local OU conta no [Supabase](https://supabase.com) (recomendado)
+
+> 💡 **Recomendação**: Use o Supabase para uma configuração mais rápida e fácil. Veja o guia completo em [SUPABASE.md](./SUPABASE.md)
 
 ## 🚀 Passo a Passo
 
@@ -36,6 +38,20 @@ npm install
 
 ### 2. Configurar Banco de Dados
 
+Você tem duas opções:
+
+#### Opção A: Usar Supabase (Recomendado) 🚀
+
+Para uma configuração rápida e fácil, use o Supabase:
+
+1. Siga o guia completo em [SUPABASE.md](./SUPABASE.md)
+2. Ou siga os passos rápidos:
+   - Crie um projeto em [supabase.com](https://supabase.com)
+   - Copie a connection string do projeto
+   - Use o arquivo `server/.env.example` como base
+
+#### Opção B: PostgreSQL Local
+
 1. Crie um banco de dados PostgreSQL:
 
 ```sql
@@ -50,13 +66,21 @@ DATABASE_URL="postgresql://usuario:senha@localhost:5432/impactlink?schema=public
 
 ### 3. Configurar Variáveis de Ambiente
 
-Crie o arquivo `server/.env` com as seguintes variáveis:
+Copie os arquivos de exemplo e configure:
+
+```bash
+# No diretório server
+cd server
+cp .env.example .env
+```
+
+Edite o arquivo `server/.env` com suas configurações:
 
 ```env
-# Database
-DATABASE_URL="postgresql://usuario:senha@localhost:5432/impactlink?schema=public"
+# Database (use a connection string do Supabase ou PostgreSQL local)
+DATABASE_URL="postgresql://..."
 
-# JWT
+# JWT (gere um secret seguro: openssl rand -base64 32)
 JWT_SECRET="seu-secret-jwt-super-seguro-aqui"
 JWT_EXPIRES_IN="7d"
 
@@ -68,16 +92,19 @@ NODE_ENV=development
 APP_URL="http://localhost:3000"
 API_URL="http://localhost:3001"
 
-# Link Domain (configure após deploy)
+# Link Domain
 LINK_DOMAIN="localhost:3001"
 ```
 
-Crie o arquivo `client/.env.local`:
+Configure o cliente:
 
-```env
-NEXT_PUBLIC_API_URL=http://localhost:3001
-NEXT_PUBLIC_LINK_DOMAIN=localhost:3001
+```bash
+# No diretório client
+cd client
+cp .env.example .env.local
 ```
+
+O arquivo `client/.env.local` já está configurado corretamente para desenvolvimento.
 
 ### 4. Executar Migrações do Banco de Dados
 
