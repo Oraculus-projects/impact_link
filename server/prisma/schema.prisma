@@ -63,6 +63,7 @@ model Client {
   id            String    @id @default(cuid())
   name          String
   email         String?
+  tags          String[]  @default([])
   userId        String
   agencyId      String?
   user          User      @relation(fields: [userId], references: [id])

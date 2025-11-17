@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -8,7 +8,7 @@ import * as z from 'zod'
 import Layout from '@/components/Layout'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
-import { Plus, Copy, ExternalLink, Trash2, Edit, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Copy, ExternalLink, Trash2, Edit, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Form,
   FormControl,
@@ -84,6 +94,9 @@ export default function LinksPage() {
   const [links, setLinks] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [linkToDelete, setLinkToDelete] = useState<string | null>(null)
+  const tagInputRef = useRef<HTMLInputElement>(null)
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 10,
@@ -198,12 +211,19 @@ export default function LinksPage() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Tem certeza que deseja excluir este link?')) return
+  const handleDeleteClick = (id: string) => {
+    setLinkToDelete(id)
+    setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!linkToDelete) return
 
     try {
-      await api.delete(`/links/${id}`)
+      await api.delete(`/links/${linkToDelete}`)
       toast.success('Link excluído com sucesso!')
+      setDeleteDialogOpen(false)
+      setLinkToDelete(null)
       // Se a página atual ficar vazia após deletar, voltar para página anterior
       if (links.length === 1 && pagination.page > 1) {
         fetchLinks(pagination.page - 1)
@@ -212,6 +232,8 @@ export default function LinksPage() {
       }
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Erro ao excluir link')
+      setDeleteDialogOpen(false)
+      setLinkToDelete(null)
     }
   }
 
@@ -269,7 +291,7 @@ export default function LinksPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold text-foreground">Links</h1>
-          <Button variant={"secondary"} className='text-white' onClick={() => setShowModal(true)}>
+          <Button variant={"default"} className='text-white' onClick={() => setShowModal(true)}>
             <Plus size={20} className="mr-2" />
             Criar Link
           </Button>
@@ -294,6 +316,7 @@ export default function LinksPage() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Link</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Título</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Tipo</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Tags</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Cliques</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase">Ações</th>
                     </tr>
@@ -328,6 +351,22 @@ export default function LinksPage() {
                               )
                             })()}
                           </td>
+                          <td className="px-6 py-4">
+                            {link.tags && link.tags.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {link.tags.map((tag: string, index: number) => (
+                                  <span
+                                    key={index}
+                                    className="inline-flex items-center px-2 py-0.5 text-xs bg-primary/20 text-primary rounded-md"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">-</span>
+                            )}
+                          </td>
                           <td className="px-6 py-4 text-foreground">{link._count?.clicks || 0}</td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end space-x-2">
@@ -346,15 +385,15 @@ export default function LinksPage() {
                                   <ExternalLink size={18} />
                                 </a>
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDelete(link.id)}
-                                title="Excluir"
-                                className="h-8 w-8 text-destructive hover:text-destructive"
-                              >
-                                <Trash2 size={18} />
-                              </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleDeleteClick(link.id)}
+                                      title="Excluir"
+                                      className="h-8 w-8 text-destructive hover:text-destructive"
+                                    >
+                                      <Trash2 size={18} />
+                                    </Button>
                             </div>
                           </td>
                         </tr>
@@ -525,6 +564,81 @@ export default function LinksPage() {
                   )}
                 />
 
+                <FormField
+                  control={form.control}
+                  name="tags"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tags</FormLabel>
+                      <FormControl>
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap gap-2 min-h-[40px] p-2 border border-input rounded-md bg-background">
+                            {field.value && field.value.length > 0 ? (
+                              field.value.map((tag, index) => (
+                                <span
+                                  key={index}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-primary/20 text-primary rounded-md"
+                                >
+                                  {tag}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newTags = field.value?.filter((_, i) => i !== index) || []
+                                      field.onChange(newTags)
+                                    }}
+                                    className="ml-1 hover:text-destructive"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-sm text-muted-foreground">Nenhuma tag adicionada</span>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <Input
+                              ref={tagInputRef}
+                              placeholder="Digite uma tag e pressione Enter"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  const input = e.currentTarget
+                                  const value = input.value.trim()
+                                  if (value && !field.value?.includes(value)) {
+                                    field.onChange([...(field.value || []), value])
+                                    input.value = ''
+                                  }
+                                }
+                              }}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                if (tagInputRef.current) {
+                                  const value = tagInputRef.current.value.trim()
+                                  if (value && !field.value?.includes(value)) {
+                                    field.onChange([...(field.value || []), value])
+                                    tagInputRef.current.value = ''
+                                  }
+                                }
+                              }}
+                            >
+                              <Plus size={16} className="mr-1" />
+                              Adicionar
+                            </Button>
+                          </div>
+                        </div>
+                      </FormControl>
+                      <FormDescription>
+                        Adicione tags para organizar e filtrar seus links. Pressione Enter ou clique em Adicionar.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <DialogFooter>
                   <Button
                     type="button"
@@ -544,6 +658,30 @@ export default function LinksPage() {
             </Form>
           </DialogContent>
         </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir este link? Esta ação não pode ser desfeita.
+                Todos os cliques e estatísticas associados a este link serão perdidos.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setLinkToDelete(null)}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirm}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </Layout>
   )

@@ -7,9 +7,9 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // Get all campaigns
-router.get('/', authenticate, async (req: AuthRequest, res) => {
+router.get('/', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
-    const { clientId } = req.query;
+    const { clientId, page, limit } = req.query;
 
     const where: any = {
       userId: req.userId
@@ -17,6 +17,15 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 
     if (clientId) where.clientId = clientId as string;
 
+    // Paginação
+    const pageNumber = parseInt(page as string) || 1;
+    const pageSize = parseInt(limit as string) || 10;
+    const skip = (pageNumber - 1) * pageSize;
+
+    // Contar total de campanhas
+    const total = await prisma.campaign.count({ where });
+
+    // Buscar campanhas com paginação
     const campaigns = await prisma.campaign.findMany({
       where,
       include: {
@@ -31,7 +40,9 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
           }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: pageSize
     });
 
     // Calculate total clicks per campaign
@@ -47,7 +58,19 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       };
     });
 
-    res.json({ campaigns: campaignsWithStats });
+    const totalPages = Math.ceil(total / pageSize);
+
+    res.json({ 
+      campaigns: campaignsWithStats,
+      pagination: {
+        page: pageNumber,
+        limit: pageSize,
+        total,
+        totalPages,
+        hasNext: pageNumber < totalPages,
+        hasPrev: pageNumber > 1
+      }
+    });
   } catch (error) {
     console.error('Get campaigns error:', error);
     res.status(500).json({ error: 'Failed to fetch campaigns' });
@@ -55,7 +78,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Get single campaign
-router.get('/:id', authenticate, async (req: AuthRequest, res) => {
+router.get('/:id', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const campaign = await prisma.campaign.findFirst({
       where: {
@@ -107,7 +130,7 @@ router.post(
     body('endDate').optional().isISO8601(),
     body('clientId').optional().isString()
   ],
-  async (req: AuthRequest, res) => {
+  async (req: AuthRequest, res: express.Response) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -158,7 +181,7 @@ router.put(
     body('startDate').optional().isISO8601(),
     body('endDate').optional().isISO8601()
   ],
-  async (req: AuthRequest, res) => {
+  async (req: AuthRequest, res: express.Response) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {

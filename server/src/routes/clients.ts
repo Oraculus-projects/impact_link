@@ -7,12 +7,25 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // Get all clients
-router.get('/', authenticate, async (req: AuthRequest, res) => {
+router.get('/', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
+    const { page, limit } = req.query;
+
+    const where: any = {
+      userId: req.userId
+    };
+
+    // Paginação
+    const pageNumber = parseInt(page as string) || 1;
+    const pageSize = parseInt(limit as string) || 10;
+    const skip = (pageNumber - 1) * pageSize;
+
+    // Contar total de clientes
+    const total = await prisma.client.count({ where });
+
+    // Buscar clientes com paginação
     const clients = await prisma.client.findMany({
-      where: {
-        userId: req.userId
-      },
+      where,
       include: {
         links: {
           include: {
@@ -23,7 +36,9 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
         },
         campaigns: true
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: pageSize
     });
 
     // Calculate stats per client
@@ -40,7 +55,19 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       };
     });
 
-    res.json({ clients: clientsWithStats });
+    const totalPages = Math.ceil(total / pageSize);
+
+    res.json({ 
+      clients: clientsWithStats,
+      pagination: {
+        page: pageNumber,
+        limit: pageSize,
+        total,
+        totalPages,
+        hasNext: pageNumber < totalPages,
+        hasPrev: pageNumber > 1
+      }
+    });
   } catch (error) {
     console.error('Get clients error:', error);
     res.status(500).json({ error: 'Failed to fetch clients' });
@@ -48,7 +75,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Get single client
-router.get('/:id', authenticate, async (req: AuthRequest, res) => {
+router.get('/:id', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const client = await prisma.client.findFirst({
       where: {
@@ -106,16 +133,17 @@ router.post(
   authenticate,
   [
     body('name').trim().notEmpty(),
-    body('email').optional().isEmail().normalizeEmail()
+    body('email').optional().isEmail().normalizeEmail(),
+    body('tags').optional().isArray()
   ],
-  async (req: AuthRequest, res) => {
+  async (req: AuthRequest, res: express.Response) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { name, email, agencyId } = req.body;
+      const { name, email, agencyId, tags = [] } = req.body;
 
       // If user is in an agency, use agency's ID
       let finalAgencyId = agencyId;
@@ -133,6 +161,7 @@ router.post(
         data: {
           name,
           email: email || null,
+          tags: tags || [],
           userId: req.userId!,
           agencyId: finalAgencyId || null
         }
@@ -152,9 +181,10 @@ router.put(
   authenticate,
   [
     body('name').optional().trim().notEmpty(),
-    body('email').optional().isEmail().normalizeEmail()
+    body('email').optional().isEmail().normalizeEmail(),
+    body('tags').optional().isArray()
   ],
-  async (req: AuthRequest, res) => {
+  async (req: AuthRequest, res: express.Response) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -176,7 +206,8 @@ router.put(
         where: { id: req.params.id },
         data: {
           name: req.body.name,
-          email: req.body.email
+          email: req.body.email,
+          tags: req.body.tags !== undefined ? req.body.tags : undefined
         }
       });
 
@@ -189,7 +220,7 @@ router.put(
 );
 
 // Delete client
-router.delete('/:id', authenticate, async (req: AuthRequest, res) => {
+router.delete('/:id', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const client = await prisma.client.findFirst({
       where: {

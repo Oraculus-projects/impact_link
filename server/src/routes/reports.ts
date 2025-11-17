@@ -7,7 +7,7 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // Generate PDF report
-router.get('/pdf', authenticate, async (req: AuthRequest, res) => {
+router.get('/pdf', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const { startDate, endDate, clientId, campaignId } = req.query;
 
@@ -103,7 +103,7 @@ router.get('/pdf', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Generate CSV report
-router.get('/csv', authenticate, async (req: AuthRequest, res) => {
+router.get('/csv', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const { startDate, endDate, clientId, campaignId } = req.query;
 
