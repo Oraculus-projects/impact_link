@@ -128,6 +128,22 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res) => {
       take: 10
     });
 
+    // Get clicks by country for heatmap
+    const clicksByCountry = await prisma.click.groupBy({
+      by: ['country'],
+      where: {
+        userId: req.userId,
+        createdAt: {
+          gte: start,
+          lte: end
+        },
+        country: {
+          not: null
+        }
+      },
+      _count: true
+    });
+
     // Calculate insights
     const previousPeriodStart = new Date(start.getTime() - (end.getTime() - start.getTime()));
     const previousPeriodClicks = await prisma.click.count({
@@ -183,8 +199,14 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res) => {
       })),
       topReferrers: clicksByReferrer.map(item => ({
         referrer: item.referrer || 'Direct',
-        count: item._count.referrer
+        count: item._count
       })),
+      clicksByCountry: clicksByCountry.reduce((acc, item) => {
+        if (item.country) {
+          acc[item.country] = item._count;
+        }
+        return acc;
+      }, {} as Record<string, number>),
       topLinks,
       dailyClicks,
       insights

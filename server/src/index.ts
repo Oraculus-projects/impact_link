@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import geoip from 'geoip-lite';
 
 // Routes
 import authRoutes from './routes/auth';
@@ -84,7 +85,13 @@ app.get('/:shortCode', async (req, res) => {
 function extractTrackingData(req: express.Request) {
   const userAgent = req.get('user-agent') || '';
   const referrer = req.get('referer') || req.get('referrer') || null;
-  const ip = req.ip || req.socket.remoteAddress || null;
+  
+  // Get IP address (considering proxy headers)
+  const ip = req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
+             req.headers['x-real-ip']?.toString() ||
+             req.ip || 
+             req.socket.remoteAddress || 
+             null;
 
   // Parse user agent (simplified - in production, use ua-parser-js)
   const device = userAgent.includes('Mobile') ? 'mobile' : 
@@ -93,13 +100,40 @@ function extractTrackingData(req: express.Request) {
   const browser = extractBrowser(userAgent);
   const os = extractOS(userAgent);
 
+  // Get geographic data from IP
+  let country: string | null = null;
+  let city: string | null = null;
+  
+  // Em desenvolvimento, permitir dados de teste via header
+  if (process.env.NODE_ENV === 'development' && req.headers['x-test-country']) {
+    country = req.headers['x-test-country'] as string;
+    city = req.headers['x-test-city'] as string || null;
+  } else if (ip && ip !== '::1' && ip !== '127.0.0.1' && !ip.startsWith('192.168.') && !ip.startsWith('10.') && !ip.startsWith('172.')) {
+    try {
+      const geo = geoip.lookup(ip);
+      if (geo) {
+        country = geo.country || null;
+        city = geo.city || null;
+      }
+    } catch (error) {
+      console.error('Error looking up geo data:', error);
+    }
+  } else if (process.env.NODE_ENV === 'development') {
+    // Em desenvolvimento local, usar um país de teste padrão se não houver IP público
+    // Isso permite testar o heatmap mesmo em localhost
+    country = process.env.DEFAULT_TEST_COUNTRY || null;
+    city = process.env.DEFAULT_TEST_CITY || null;
+  }
+
   return {
     referrer,
     userAgent,
     device,
     browser,
     os,
-    ip
+    ip,
+    country,
+    city
   };
 }
 

@@ -77,7 +77,9 @@ router.post(
   '/',
   authenticate,
   [
-    body('originalUrl').isURL(),
+    body('originalUrl')
+      .isURL({ require_protocol: true, require_valid_protocol: true })
+      .withMessage('URL deve ser válida e incluir protocolo (http:// ou https://)'),
     body('title').optional().trim(),
     body('description').optional().trim(),
     body('linkType').optional().isIn(['BIO', 'STORY', 'DIRECT', 'CAMPANHA', 'PRODUTO', 'OTHER']),
@@ -86,11 +88,15 @@ router.post(
     body('campaignId').optional().isString(),
     body('expiresAt').optional().isISO8601()
   ],
-  async (req: AuthRequest, res) => {
+  async (req: AuthRequest, res: express.Response) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+        console.error('Validation errors:', errors.array());
+        return res.status(400).json({ 
+          error: 'Erro de validação',
+          errors: errors.array() 
+        });
       }
 
       const {
@@ -104,6 +110,13 @@ router.post(
         expiresAt,
         shortCode: customShortCode
       } = req.body;
+
+      console.log('Creating link with data:', {
+        originalUrl,
+        title,
+        linkType,
+        userId: req.userId
+      });
 
       // Validate client and campaign belong to user
       if (clientId) {
@@ -138,27 +151,38 @@ router.post(
         }
       }
 
+      // Preparar dados para criação - tratar campos opcionais
+      const linkData: any = {
+        shortCode,
+        originalUrl,
+        linkType,
+        tags: tags || [],
+        userId: req.userId!,
+        clientId: clientId || null,
+        campaignId: campaignId || null,
+        expiresAt: expiresAt ? new Date(expiresAt) : null
+      };
+
+      // Adicionar campos opcionais apenas se não estiverem vazios
+      if (title && title.trim()) {
+        linkData.title = title.trim();
+      }
+      if (description && description.trim()) {
+        linkData.description = description.trim();
+      }
+
+      console.log('Link data to create:', linkData);
+
       const link = await prisma.link.create({
-        data: {
-          shortCode,
-          originalUrl,
-          title,
-          description,
-          linkType,
-          tags,
-          userId: req.userId!,
-          clientId: clientId || null,
-          campaignId: campaignId || null,
-          expiresAt: expiresAt ? new Date(expiresAt) : null
-        },
+        data: linkData,
         include: {
           client: true,
           campaign: true
         }
       });
 
-      const linkDomain = process.env.LINK_DOMAIN || 'localhost:3001';
-      const fullShortUrl = `https://${linkDomain}/${link.shortCode}`;
+      const linkDomain = process.env.NEXT_PUBLIC_API_URL || 'htpp://localhost:3001';
+      const fullShortUrl = `${linkDomain}/${link.shortCode}`;
 
       res.status(201).json({
         link: {
@@ -166,9 +190,25 @@ router.post(
           shortUrl: fullShortUrl
         }
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Create link error:', error);
-      res.status(500).json({ error: 'Failed to create link' });
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        meta: error.meta
+      });
+      
+      // Retornar mensagem de erro mais específica
+      if (error.code === 'P2002') {
+        return res.status(400).json({ 
+          error: 'Já existe um link com este código curto' 
+        });
+      }
+      
+      res.status(500).json({ 
+        error: error.message || 'Failed to create link',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   }
 );
@@ -185,7 +225,7 @@ router.put(
     body('isActive').optional().isBoolean(),
     body('expiresAt').optional().isISO8601()
   ],
-  async (req: AuthRequest, res) => {
+  async (req: AuthRequest, res: express.Response) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {

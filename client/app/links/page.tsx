@@ -2,23 +2,99 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import * as z from 'zod'
 import Layout from '@/components/Layout'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
 import { Plus, Copy, ExternalLink, Trash2, Edit } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
+
+// Schema de validação com Zod
+const linkFormSchema = z.object({
+  originalUrl: z
+    .string()
+    .min(1, 'URL original é obrigatória')
+    .url('URL inválida. Use o formato: https://example.com')
+    .refine(
+      (url) => {
+        try {
+          const parsedUrl = new URL(url)
+          return ['http:', 'https:'].includes(parsedUrl.protocol)
+        } catch {
+          return false
+        }
+      },
+      {
+        message: 'URL deve começar com http:// ou https://',
+      }
+    ),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  linkType: z.enum(['BIO', 'STORY', 'DIRECT', 'CAMPANHA', 'PRODUTO', 'OTHER']),
+  tags: z.array(z.string()).optional(),
+  expiresAt: z
+    .string()
+    .optional()
+    .refine(
+      (date) => {
+        if (!date) return true
+        const expiryDate = new Date(date)
+        const now = new Date()
+        return expiryDate > now
+      },
+      {
+        message: 'Data de expiração deve ser no futuro',
+      }
+    ),
+})
+
+type LinkFormValues = z.infer<typeof linkFormSchema>
 
 export default function LinksPage() {
   const router = useRouter()
   const [links, setLinks] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [formData, setFormData] = useState({
-    originalUrl: '',
-    title: '',
-    description: '',
-    linkType: 'OTHER',
-    tags: [] as string[],
-    expiresAt: ''
+
+  // Formulário com react-hook-form
+  const form = useForm<LinkFormValues>({
+    resolver: zodResolver(linkFormSchema),
+    defaultValues: {
+      originalUrl: '',
+      title: '',
+      description: '',
+      linkType: 'OTHER',
+      tags: [],
+      expiresAt: '',
+    },
   })
 
   useEffect(() => {
@@ -42,23 +118,69 @@ export default function LinksPage() {
     }
   }
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const onSubmit = async (data: LinkFormValues) => {
     try {
-      const response = await api.post('/links', formData)
+      // Preparar dados para envio - remover campos vazios
+      const dataToSend: any = {
+        originalUrl: data.originalUrl,
+        linkType: data.linkType
+      }
+      
+      // Adicionar campos opcionais apenas se não estiverem vazios
+      if (data.title && data.title.trim()) dataToSend.title = data.title.trim()
+      if (data.description && data.description.trim()) dataToSend.description = data.description.trim()
+      if (data.tags && data.tags.length > 0) {
+        dataToSend.tags = data.tags
+      } else {
+        dataToSend.tags = []
+      }
+      if (data.expiresAt) dataToSend.expiresAt = data.expiresAt
+      
+      // Log do que está sendo enviado para debug
+      console.log('Enviando dados:', dataToSend)
+      
+      const response = await api.post('/links', dataToSend)
       toast.success('Link criado com sucesso!')
       setShowModal(false)
-      setFormData({
-        originalUrl: '',
-        title: '',
-        description: '',
-        linkType: 'OTHER',
-        tags: [],
-        expiresAt: ''
-      })
+      form.reset()
       fetchLinks()
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Erro ao criar link')
+      // Log detalhado do erro
+      console.error('Erro completo:', error)
+      console.error('Resposta do servidor:', error.response?.data)
+      console.error('Status:', error.response?.status)
+      
+      // Processar erros de validação do servidor
+      if (error.response?.status === 400 && error.response?.data?.errors) {
+        const serverErrors: Record<string, { message: string }> = {}
+        
+        if (Array.isArray(error.response.data.errors)) {
+          error.response.data.errors.forEach((err: any) => {
+            const field = err.param || err.path || 'root'
+            serverErrors[field] = { message: err.msg || err.message || 'Erro de validação' }
+          })
+        }
+        
+        // Aplicar erros do servidor ao formulário
+        Object.keys(serverErrors).forEach((field) => {
+          form.setError(field as any, {
+            type: 'server',
+            message: serverErrors[field].message,
+          })
+        })
+        
+        // Mostrar toast com resumo
+        const errorMessages = Object.values(serverErrors).map(e => e.message).join(', ')
+        toast.error(`Erro de validação: ${errorMessages}`)
+      } else {
+        // Erro geral
+        const errorMessage = error.response?.data?.error || error.message || 'Erro ao criar link'
+        toast.error(errorMessage)
+        form.setError('root', {
+          type: 'server',
+          message: errorMessage,
+        })
+      }
     }
   }
 
@@ -79,13 +201,14 @@ export default function LinksPage() {
     toast.success('Link copiado!')
   }
 
-  const linkDomain = process.env.NEXT_PUBLIC_LINK_DOMAIN || 'localhost:3001'
+  // const linkDomain = process.env.NEXT_PUBLIC_LINK_DOMAIN || 'localhost:3001'
+  const linkDomain = process.env.NEXT_PUBLIC_API_URL|| 'htpp://localhost:3001'
 
   if (loading) {
     return (
       <Layout>
         <div className="flex items-center justify-center h-64">
-          <div className="text-gray-500">Carregando...</div>
+          <div className="text-muted-foreground">Carregando...</div>
         </div>
       </Layout>
     )
@@ -95,160 +218,217 @@ export default function LinksPage() {
     <Layout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-900">Links</h1>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-          >
-            <Plus size={20} />
-            <span>Criar Link</span>
-          </button>
+          <h1 className="text-3xl font-bold text-foreground">Links</h1>
+          <Button variant={"outline"} className='text-white' onClick={() => setShowModal(true)}>
+            <Plus size={20} className="mr-2" />
+            Criar Link
+          </Button>
         </div>
 
         {links.length === 0 ? (
-          <div className="bg-white p-12 rounded-lg shadow text-center">
-            <p className="text-gray-500 mb-4">Você ainda não tem links criados</p>
-            <button
-              onClick={() => setShowModal(true)}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-            >
-              Criar Primeiro Link
-            </button>
-          </div>
+          <Card>
+            <CardContent className="p-12 text-center">
+              <p className="text-muted-foreground mb-4">Você ainda não tem links criados</p>
+              <Button onClick={() => setShowModal(true)}>
+                Criar Primeiro Link
+              </Button>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Link</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Título</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliques</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {links.map((link) => {
-                  const shortUrl = `https://${linkDomain}/${link.shortCode}`
-                  return (
-                    <tr key={link.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-mono text-sm text-primary-600">{shortUrl}</span>
-                          <button
-                            onClick={() => copyToClipboard(shortUrl)}
-                            className="text-gray-400 hover:text-gray-600"
-                            title="Copiar"
-                          >
-                            <Copy size={16} />
-                          </button>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">{link.title || 'Sem título'}</td>
-                      <td className="px-6 py-4">
-                        <span className="px-2 py-1 bg-primary-100 text-primary-700 rounded text-xs">
-                          {link.linkType}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">{link._count?.clicks || 0}</td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end space-x-2">
-                          <a
-                            href={link.originalUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-gray-400 hover:text-gray-600"
-                            title="Abrir URL original"
-                          >
-                            <ExternalLink size={18} />
-                          </a>
-                          <button
-                            onClick={() => handleDelete(link.id)}
-                            className="text-red-400 hover:text-red-600"
-                            title="Excluir"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      </td>
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b border-border">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Link</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Título</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Tipo</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Cliques</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase">Ações</th>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {links.map((link) => {
+                      const shortUrl = `${linkDomain}/${link.shortCode}`
+                      return (
+                        <tr key={link.id} className="hover:bg-accent/50">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-mono text-sm text-primary">{shortUrl}</span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => copyToClipboard(shortUrl)}
+                                title="Copiar"
+                                className="h-6 w-6"
+                              >
+                                <Copy size={16} />
+                              </Button>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-foreground">{link.title || 'Sem título'}</td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-1 bg-primary/20 text-primary rounded text-xs">
+                              {link.linkType}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-foreground">{link._count?.clicks || 0}</td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end space-x-2">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                asChild
+                                className="h-8 w-8"
+                              >
+                                <a
+                                  href={link.originalUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Abrir URL original"
+                                >
+                                  <ExternalLink size={18} />
+                                </a>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDelete(link.id)}
+                                title="Excluir"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 size={18} />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Create Link Modal */}
-        {showModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h2 className="text-xl font-semibold mb-4">Criar Novo Link</h2>
-              <form onSubmit={handleCreate} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    URL Original *
-                  </label>
-                  <input
-                    type="url"
-                    value={formData.originalUrl}
-                    onChange={(e) => setFormData({ ...formData, originalUrl: e.target.value })}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                    placeholder="https://example.com"
-                  />
-                </div>
+        <Dialog 
+          open={showModal} 
+          onOpenChange={(open) => {
+            setShowModal(open)
+            if (!open) {
+              // Resetar formulário ao fechar
+              form.reset()
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Criar Novo Link</DialogTitle>
+              <DialogDescription>
+                Crie um novo link rastreável para medir o impacto do seu conteúdo.
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                {form.formState.errors.root && (
+                  <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
+                    <FormMessage>{form.formState.errors.root.message}</FormMessage>
+                  </div>
+                )}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Título
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                    placeholder="Meu link importante"
-                  />
-                </div>
+                <FormField
+                  control={form.control}
+                  name="originalUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>URL Original *</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="https://example.com"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        URL completa que será redirecionada
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tipo de Link
-                  </label>
-                  <select
-                    value={formData.linkType}
-                    onChange={(e) => setFormData({ ...formData, linkType: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="BIO">Bio</option>
-                    <option value="STORY">Story</option>
-                    <option value="DIRECT">Direct</option>
-                    <option value="CAMPANHA">Campanha</option>
-                    <option value="PRODUTO">Produto</option>
-                    <option value="OTHER">Outro</option>
-                  </select>
-                </div>
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Título</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Meu link importante"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Título opcional para identificar o link
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-                <div className="flex space-x-4">
-                  <button
+                <FormField
+                  control={form.control}
+                  name="linkType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tipo de Link</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um tipo" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="BIO">Bio</SelectItem>
+                          <SelectItem value="STORY">Story</SelectItem>
+                          <SelectItem value="DIRECT">Direct</SelectItem>
+                          <SelectItem value="CAMPANHA">Campanha</SelectItem>
+                          <SelectItem value="PRODUTO">Produto</SelectItem>
+                          <SelectItem value="OTHER">Outro</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Categoria do link para organização
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <DialogFooter>
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={() => setShowModal(false)}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                   >
                     Cancelar
-                  </button>
-                  <button
+                  </Button>
+                  <Button 
                     type="submit"
-                    className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                    disabled={form.formState.isSubmitting}
                   >
-                    Criar
-                  </button>
-                </div>
+                    {form.formState.isSubmitting ? 'Criando...' : 'Criar'}
+                  </Button>
+                </DialogFooter>
               </form>
-            </div>
-          </div>
-        )}
+            </Form>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   )

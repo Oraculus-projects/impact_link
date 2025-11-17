@@ -12,6 +12,8 @@ import {
   FileText,
   LogOut
 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -41,15 +43,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ]
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200">
+    <div className="min-h-screen bg-background">
+      <nav className="border-b border-border bg-card">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-8">
-              <Link href="/dashboard" className="text-xl font-bold text-primary-600">
+              <Link href="/dashboard" className="text-xl font-bold text-primary">
                 ImpactLink
               </Link>
-              <div className="flex space-x-4">
+              <div className="flex space-x-2">
                 {navItems.map((item) => {
                   const Icon = item.icon
                   const isActive = pathname === item.href
@@ -57,11 +59,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition ${
+                      className={cn(
+                        "flex items-center space-x-2 px-3 py-2 rounded-lg transition",
                         isActive
-                          ? 'bg-primary-100 text-primary-700'
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                      )}
                     >
                       <Icon size={18} />
                       <span>{item.label}</span>
@@ -72,15 +75,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center space-x-4">
               {user && (
-                <span className="text-sm text-gray-600">{user.name}</span>
+                <span className="text-sm text-muted-foreground">{user.name}</span>
               )}
-              <button
+              <Button
+                variant="ghost"
                 onClick={handleLogout}
-                className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                className="flex items-center space-x-2"
               >
                 <LogOut size={18} />
                 <span>Sair</span>
-              </button>
+              </Button>
             </div>
           </div>
         </div>
