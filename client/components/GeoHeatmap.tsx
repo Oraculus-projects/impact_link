@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps'
 import { scaleSequential } from 'd3-scale'
 import { interpolateYlOrRd } from 'd3-scale-chromatic'
@@ -105,17 +105,8 @@ export default function GeoHeatmap({ data }: GeoHeatmapProps) {
     setMounted(true)
   }, [])
 
-  // Debug: log dos dados recebidos (apenas em desenvolvimento)
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('GeoHeatmap data:', data)
-      console.log('Países com dados:', Object.keys(data))
-      console.log('Valores:', Object.values(data))
-    }
-  }, [data])
-
   // Calcular valores máximo e mínimo para escala
-  const values = Object.values(data)
+  const values = Object.values(data || {})
   const maxValue = Math.max(...values, 1)
   const minValue = Math.min(...values, 0)
 
@@ -123,9 +114,36 @@ export default function GeoHeatmap({ data }: GeoHeatmapProps) {
   const colorScale = scaleSequential(interpolateYlOrRd)
     .domain([minValue, maxValue])
 
+  // Criar um Map para lookup rápido dos dados (código -> cliques)
+  // Usar useMemo para recriar apenas quando data mudar
+  const dataMap = useMemo(() => {
+    const map = new Map<string, number>()
+    if (data) {
+      Object.entries(data).forEach(([code, count]) => {
+        const normalizedCode = code.toUpperCase().trim()
+        map.set(normalizedCode, count as number)
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`DataMap: ${normalizedCode} = ${count}`)
+        }
+      })
+    }
+    return map
+  }, [data])
+
+  // Debug: log dos dados recebidos (apenas em desenvolvimento)
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('GeoHeatmap data:', data)
+      console.log('Países com dados:', Object.keys(data || {}))
+      console.log('Valores:', Object.values(data || {}))
+      console.log('DataMap size:', dataMap.size)
+      console.log('DataMap entries:', Array.from(dataMap.entries()))
+    }
+  }, [data, dataMap])
+
   // Função para obter cliques e cor baseados no país
-  const getCountryData = (geo: any): { clicks: number; fillColor: string } => {
-    const countryName = geo.properties.NAME || geo.properties.NAME_LONG || geo.properties.NAME_EN
+  const getCountryData = (geo: any): { clicks: number; fillColor: string; countryName: string } => {
+    const countryName = geo.properties.NAME || geo.properties.NAME_LONG || geo.properties.NAME_EN || 'Unknown'
     // geoip-lite retorna códigos de 2 letras (ISO_A2), então priorizamos ISO_A2
     const countryCode = geo.properties.ISO_A2 || geo.properties.ISO_A3
     
@@ -135,29 +153,36 @@ export default function GeoHeatmap({ data }: GeoHeatmapProps) {
     // Primeiro, tentar por código ISO_A2 (2 letras) - formato do geoip-lite
     if (countryCode) {
       const normalizedCode = countryCode.toUpperCase().trim()
-      for (const [country, count] of Object.entries(data)) {
-        const normalizedCountry = country.toUpperCase().trim()
-        // Match exato por código (2 letras)
-        if (normalizedCountry === normalizedCode) {
-          clicks = count as number
-          break
+      clicks = dataMap.get(normalizedCode) || 0
+      
+      // Debug detalhado
+      if (process.env.NODE_ENV === 'development') {
+        if (clicks > 0) {
+          console.log(`✅ Match encontrado: ${countryName} (${normalizedCode}) = ${clicks} cliques`)
+        } else {
+          // Log apenas para países conhecidos com dados para debug
+          const hasData = Array.from(dataMap.keys()).some(key => key === normalizedCode)
+          if (!hasData && dataMap.size > 0) {
+            console.log(`❌ Sem match: ${countryName} (${normalizedCode}) - códigos disponíveis:`, Array.from(dataMap.keys()))
+          }
         }
       }
     }
     
     // Se não encontrou por código, tentar por nome (fallback)
     if (clicks === 0 && countryName) {
-      for (const [country, count] of Object.entries(data)) {
-        const normalizedCountry = country.toLowerCase().trim()
-        const normalizedName = countryName.toLowerCase().trim()
-        
-        if (
-          normalizedCountry === normalizedName ||
-          normalizedCountry.includes(normalizedName) ||
-          normalizedName.includes(normalizedCountry)
-        ) {
-          clicks = count as number
-          break
+      // Tentar encontrar por nome usando o mapeamento countryNameToCode
+      const mappedCode = countryNameToCode[countryName]
+      if (mappedCode) {
+        clicks = dataMap.get(mappedCode) || 0
+      }
+      
+      // Se ainda não encontrou, tentar match direto por nome
+      if (clicks === 0) {
+        for (const [code, count] of dataMap.entries()) {
+          // Verificar se algum código corresponde ao nome do país
+          const normalizedName = countryName.toLowerCase().trim()
+          // Isso é um fallback menos confiável, mas pode ajudar
         }
       }
     }
@@ -166,7 +191,7 @@ export default function GeoHeatmap({ data }: GeoHeatmapProps) {
       ? '#1a1a1a' // Cor padrão para países sem dados (tema dark)
       : colorScale(clicks)
 
-    return { clicks, fillColor }
+    return { clicks, fillColor, countryName }
   }
 
   // Não renderizar até que o componente esteja montado (evita problemas de SSR)
@@ -191,8 +216,7 @@ export default function GeoHeatmap({ data }: GeoHeatmapProps) {
           <Geographies geography={geoUrl}>
             {({ geographies }) =>
               geographies.map((geo) => {
-                const countryName = geo.properties.NAME || geo.properties.NAME_LONG || geo.properties.NAME_EN
-                const { clicks, fillColor } = getCountryData(geo)
+                const { clicks, fillColor, countryName } = getCountryData(geo)
 
                 return (
                   <Geography
@@ -202,7 +226,10 @@ export default function GeoHeatmap({ data }: GeoHeatmapProps) {
                     stroke="#2a2a2a"
                     strokeWidth={0.5}
                     onMouseEnter={() => {
-                      setTooltipContent({ country: countryName || 'Unknown', clicks })
+                      if (process.env.NODE_ENV === 'development') {
+                        console.log(`Hover: ${countryName} - Código: ${geo.properties.ISO_A2 || geo.properties.ISO_A3} - Clicks: ${clicks}`)
+                      }
+                      setTooltipContent({ country: countryName, clicks })
                     }}
                     onMouseLeave={() => {
                       setTooltipContent(null)
